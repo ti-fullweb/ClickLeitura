@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "AppLeiturista",
+    "slug": "app-leiturista",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./generated-icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./generated-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./generated-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.fullweb.appleiturista"
+    },
+    "web": {
+      "favicon": "./generated-icon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir que o AppLeiturista acesse sua câmera para capturar fotos de medidores."
+        }
+      ],
+      "expo-sqlite"
+    ]
+  }
+}
