@@ -4,11 +4,13 @@ import NetInfo from '@react-native-community/netinfo';
 import { getRoteiroDoDia as getRoteiroDoSupabase } from './supabase'; // Renomeado para evitar conflito
 import { format, parseISO } from 'date-fns'; // Adicionar parseISO
 
+// Forçar recarregamento do módulo
+
 // Instância do MMKV para roteiros
-const roteiroStorage = new MMKV({ id: 'roteiro-storage' });
+export const roteiroStorage = new MMKV({ id: 'roteiro-storage' });
 
 // Helper para gerar a chave do MMKV
-const getRoteiroStorageKey = (leituristaId, dataRoteiro) => {
+export const getRoteiroStorageKey = (leituristaId, dataRoteiro) => {
   const dataFormatada = format(dataRoteiro, 'yyyy-MM-dd');
   return `roteiro-${leituristaId}-${dataFormatada}`;
 };
@@ -174,15 +176,20 @@ const sincronizarAtualizacaoVisita = async (roteiroResidenciaId, novoStatus, vis
  * (Implementação depende do endpoint)
  * @param {object} dadosLeitura - Objeto contendo os dados da leitura a serem enviados.
  */
-const sincronizarNovaLeitura = async (dadosLeitura) => {
-   console.warn("sincronizarNovaLeitura: Implementação pendente.");
-   // Exemplo (Supabase direto):
-   // const { error } = await supabase.from('leituras').insert([dadosLeitura]);
-   // if (error) console.error("Erro ao sincronizar nova leitura:", error);
+export const sincronizarNovaLeitura = async (dadosLeitura) => {
+  const { error } = await supabase.from('leituras').insert({
+    roteiro_residencia_id: dadosLeitura.roteiro_residencia_id,
+    data_leitura: dadosLeitura.data_leitura,
+    leitura_anterior: dadosLeitura.leitura_anterior,
+    leitura_atual: dadosLeitura.leitura_atual,
+    tipo_ocorrencia_id: dadosLeitura.tipo_ocorrencia_id,
+    imagem_url: dadosLeitura.imagem_url ?? null,
+    observacao: dadosLeitura.observacao ?? '',
+    latitude_leitura: dadosLeitura.latitude_leitura ?? null,
+    longitude_leitura: dadosLeitura.longitude_leitura ?? null,
+  });
 
-   // Exemplo (Webhook):
-   // await sincronizarComWebhook('/webhook/leitura', dadosLeitura);
-   return true; // Simular sucesso por enquanto
+  return !error;
 };
 
 

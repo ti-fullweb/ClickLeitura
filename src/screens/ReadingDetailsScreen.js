@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../context/AppContext';
 import MeterReadingForm from '../components/MeterReadingForm';
 import CameraComponent from '../components/Camera'; // Importar o componente da câmera
+import StandardLayout from '../components/layouts/StandardLayout';
+import { sincronizarLeiturasPendentes } from '../services/syncLeiturasSupabase'; // Importar função de sincronização
 
 /**
  * Reading details screen for viewing and editing a reading
@@ -61,11 +63,18 @@ const ReadingDetailsScreen = ({ route, navigation }) => {
       const updatedReading = {
         ...reading,
         ...updatedData,
-        // Se a leitura já estava sincronizada, marcar como não sincronizada após edição
-        synced: false
+        reading_value: updatedData.leitura_atual ?? reading.reading_value, // 🔁 garantir consistência
+        synced: false,
       };
 
       await updateReading(updatedReading);
+
+      // Tentar sincronizar a leitura atualizada imediatamente
+      console.log("Tentando sincronizar leitura atualizada...");
+      const syncResult = await sincronizarLeiturasPendentes();
+      console.log("Resultado da sincronização imediata:", syncResult);
+      // Opcional: Mostrar um alerta sobre o resultado da sincronização imediata
+      // Alert.alert("Sincronização Imediata", syncResult.message);
 
       // Atualizar estado local
       setReading(updatedReading);
@@ -214,7 +223,10 @@ const ReadingDetailsScreen = ({ route, navigation }) => {
   // Modo de edição: mostrar formulário
   if (isEditing) {
     return (
-      <View style={styles.container}>
+      <StandardLayout
+        title={reading.is_facade ? 'Editar Fachada' : `Editar Medidor ${reading.meter_id}`}
+        onBackPress={handleCancel}
+      >
         <MeterReadingForm
           initialData={reading}
           onSubmit={handleSubmit}
@@ -223,119 +235,97 @@ const ReadingDetailsScreen = ({ route, navigation }) => {
           isSaving={isSaving}
           capturedImage={reading.image_path ? { uri: reading.image_path } : null}
         />
-      </View>
+      </StandardLayout>
     );
   }
 
   // Modo de visualização: mostrar detalhes
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
-            <View style={styles.titleContainer}>
-              <Text style={styles.title}>
-                {reading.is_facade ? 'Fachada' : `Medidor ${reading.meter_id}`}
-              </Text>
-              <View style={[
-                styles.syncTag,
-                reading.synced ? styles.syncedTag : styles.unsyncedTag
-              ]}>
-                <Ionicons
-                  name={reading.synced ? "cloud-done" : "cloud-offline"}
-                  size={16}
-                  color={reading.synced ? "#48bb78" : "#ed8936"}
-                />
-                <Text style={[
-                  styles.syncText,
-                  { color: reading.synced ? "#48bb78" : "#ed8936" }
-                ]}>
-                  {reading.synced ? "Sincronizado" : "Pendente"}
-                </Text>
-              </View>
-            </View>
+    <StandardLayout
+      title={reading.is_facade ? 'Detalhes da Fachada' : `Detalhes do Medidor ${reading.meter_id}`}
+      onBackPress={() => navigation.goBack()}
+    >
+      {reading.image_path && (
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: reading.image_path }}
+            style={styles.image}
+            resizeMode="cover"
+          />
+        </View>
+      )}
 
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={handleEdit}
-            >
-              <Ionicons name="create-outline" size={20} color="#4299e1" />
-              <Text style={styles.editButtonText}>Editar</Text>
-            </TouchableOpacity>
-          </View>
+      {!reading.is_facade && (
+        <View style={styles.infoSection}>
+<Text style={styles.sectionTitle}>Leitura Atual</Text>
+<View style={styles.readingValueContainer}>
+  <Text style={styles.readingValue}>
+    {reading.reading_value ?? 'Não informado'}
+  </Text>
+</View>
+
+<View style={styles.infoRow}>
+  <Text style={styles.infoLabel}>Leitura Anterior:</Text>
+  <Text style={styles.infoValue}>
+    {reading.leitura_anterior ?? 'Não informado'}
+  </Text>
+</View>
+
+<View style={styles.infoRow}>
+  <Text style={styles.infoLabel}>Hidrômetro:</Text>
+  <Text style={styles.infoValue}>
+    {reading.meter_id ?? reading.hidrometro_numero ?? 'Não informado'}
+  </Text>
+</View>
+
+<View style={styles.infoRow}>
+  <Text style={styles.infoLabel}>Status:</Text>
+  <Text style={styles.infoValue}>
+    {reading.synced ? 'Sincronizado' : 'Pendente'}
+  </Text>
+</View>
+        </View>
+      )}
+
+      <View style={styles.infoSection}>
+        <Text style={styles.sectionTitle}>Informações Gerais</Text>
+
+        <View style={styles.infoRow}>
+          <Text style={styles.infoLabel}>Data:</Text>
+          <Text style={styles.infoValue}>
+            {new Date(reading.timestamp).toLocaleString('pt-BR')}
+          </Text>
         </View>
 
-        <View style={styles.content}>
-          {reading.image_path && (
-            <View style={styles.imageContainer}>
-              <Image
-                source={{ uri: reading.image_path }}
-                style={styles.image}
-                resizeMode="cover"
-              />
-            </View>
-          )}
-
-          {!reading.is_facade && (
-            <View style={styles.infoSection}>
-              <Text style={styles.sectionTitle}>Leitura do Medidor</Text>
-              <View style={styles.readingValueContainer}>
-                <Text style={styles.readingValue}>{reading.reading_value}</Text>
-              </View>
-            </View>
-          )}
-
-          <View style={styles.infoSection}>
-            <Text style={styles.sectionTitle}>Informações Gerais</Text>
-
-            <View style={styles.infoRow}>
-              <Text style={styles.infoLabel}>Data:</Text>
-              <Text style={styles.infoValue}>
-                {new Date(reading.timestamp).toLocaleString('pt-BR')}
-              </Text>
-            </View>
-
-            {reading.client_name && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Cliente:</Text>
-                <Text style={styles.infoValue}>{reading.client_name}</Text>
-              </View>
-            )}
-
-            {reading.address && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Endereço:</Text>
-                <Text style={styles.infoValue}>{reading.address}</Text>
-              </View>
-            )}
-
-            {reading.remote_id && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>ID Remoto:</Text>
-                <Text style={styles.infoValue}>{reading.remote_id}</Text>
-              </View>
-            )}
+        {reading.client_name && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Cliente:</Text>
+            <Text style={styles.infoValue}>{reading.client_name}</Text>
           </View>
+        )}
 
-          {reading.notes && (
-            <View style={styles.infoSection}>
-              <Text style={styles.sectionTitle}>Observações</Text>
-              <Text style={styles.notesText}>{reading.notes}</Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
+        {reading.address && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Endereço:</Text>
+            <Text style={styles.infoValue}>{reading.address}</Text>
+          </View>
+        )}
 
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={20} color="#4a5568" />
-          <Text style={styles.backButtonText}>Voltar</Text>
-        </TouchableOpacity>
+        {reading.remote_id && (
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>ID Remoto:</Text>
+            <Text style={styles.infoValue}>{reading.remote_id}</Text>
+          </View>
+        )}
       </View>
-    </View>
+
+      {reading.notes && (
+        <View style={styles.infoSection}>
+          <Text style={styles.sectionTitle}>Observações</Text>
+          <Text style={styles.notesText}>{reading.notes}</Text>
+        </View>
+      )}
+    </StandardLayout>
   );
 };
 

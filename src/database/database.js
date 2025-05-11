@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import { MMKV } from "react-native-mmkv";
 import * as WebStorage from "./webStorage"; // Manter fallback para web
+import { randomUUID } from 'expo-crypto'; // Importar randomUUID
 
 // Instância do MMKV
 const storage = new MMKV();
@@ -37,7 +38,7 @@ const ensureDatabaseInitialized = async () => {
  * This is a simple timestamp-based ID, consider a more robust solution for production
  */
 const generateId = () => {
-  return Date.now().toString();
+  return randomUUID();
 };
 
 /**
@@ -61,11 +62,27 @@ export const saveReading = async (reading) => {
         ...reading,
         id: id, // ID local
         timestamp: reading.timestamp || new Date().toISOString(), // Usar timestamp existente ou criar novo
-        synced: false // Marcar explicitamente como não sincronizado
+        synced: false, // Marcar explicitamente como não sincronizado
+        reading_value: reading.leitura_atual ?? reading.reading_value, // 🔁 ALIAS para leitura
       };
       const storageKey = `reading:${id}`;
       storage.set(storageKey, JSON.stringify(readingWithMeta));
       console.log(`Reading saved to MMKV with key ${storageKey}`, readingWithMeta);
+
+      // Adicionar a leitura ao array de leituras pendentes
+      const leiturasPendentesJson = storage.getString('leiturasPendentes');
+      let leiturasPendentes = leiturasPendentesJson ? JSON.parse(leiturasPendentesJson) : [];
+
+      // Verificar se a leitura já existe no array (para evitar duplicatas em caso de retentativas)
+      const existingIndex = leiturasPendentes.findIndex(item => item.id === id);
+      if (existingIndex === -1) {
+        leiturasPendentes.push(readingWithMeta);
+        storage.set('leiturasPendentes', JSON.stringify(leiturasPendentes));
+        console.log(`Reading with ID ${id} added to leiturasPendentes array.`);
+      } else {
+        console.log(`Reading with ID ${id} already exists in leiturasPendentes array.`);
+      }
+
       return id; // Retorna o ID local gerado
     }
   } catch (error) {
@@ -110,7 +127,12 @@ export const getUnsyncedReadings = async () => {
       return await WebStorage.getUnsyncedReadings();
     } else {
       const allReadings = await getReadings();
-      const unsyncedReadings = allReadings.filter(reading => !reading.synced);
+      // Filtrar por não sincronizado E garantir que campos essenciais existam
+      const unsyncedReadings = allReadings.filter(reading => 
+        !reading.synced && 
+        reading.reading_value !== undefined && reading.reading_value !== null &&
+        reading.roteiro_residencia_id !== undefined && reading.roteiro_residencia_id !== null
+      );
       console.log(`Fetched ${unsyncedReadings.length} unsynced readings from MMKV`);
       return unsyncedReadings;
     }

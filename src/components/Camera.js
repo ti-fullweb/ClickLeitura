@@ -101,11 +101,12 @@ const CameraComponent = ({ onCapture, onClose }) => {
             flashMode={flashMode}
             onCameraReady={handleCameraReady}
             ratio="4:3"
-            autoFocus={Camera.Constants.AutoFocus.on}
+            // Adicionar verificação para Camera.Constants antes de acessar AutoFocus
+            autoFocus={Camera.Constants?.AutoFocus?.on || 'on'} // Usar 'on' como fallback se Constants for undefined
           >
             <View style={styles.overlay}>
               <View style={styles.header}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.closeButton}
                   onPress={onClose}
                 >
@@ -118,14 +119,15 @@ const CameraComponent = ({ onCapture, onClose }) => {
               </View>
               
               <View style={styles.controls}>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.controlButton}
                   onPress={toggleFlash}
                 >
-                  <Ionicons 
-                    name={flashMode === Camera.Constants.FlashMode.on ? 'flash' : 'flash-off'} 
-                    size={28} 
-                    color="#fff" 
+                  <Ionicons
+                    // Adicionar verificação para Camera.Constants antes de acessar FlashMode
+                    name={flashMode === (Camera.Constants?.FlashMode?.on || 'on') ? 'flash' : 'flash-off'} // Usar 'on' como fallback
+                    size={28}
+                    color="#fff"
                   />
                 </TouchableOpacity>
                 

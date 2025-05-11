@@ -4,6 +4,8 @@ import { View, StyleSheet, Alert, Platform, ActivityIndicator, Text, Modal } fro
 import { useAppContext } from '../context/AppContext';
 import MeterReadingForm from '../components/MeterReadingForm';
 import CameraComponent from '../components/Camera';
+import StandardLayout from '../components/layouts/StandardLayout';
+
 const ReadingScreen = ({ navigation }) => {
   const { addReading } = useAppContext();
 
@@ -124,7 +126,10 @@ const ReadingScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <StandardLayout
+      title="Nova Leitura"
+      onBackPress={handleCancel}
+    >
       {showCamera ? (
         <CameraComponent onCapture={handleCaptureImage} onClose={handleCloseCamera} />
       ) : (
@@ -140,12 +145,13 @@ const ReadingScreen = ({ navigation }) => {
 
         </>
       )}
-    </View>
+    </StandardLayout>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f7fafc' },
+  // Removido estilos que agora são tratados pelo StandardLayout
+  // container: { flex: 1, backgroundColor: '#f7fafc' },
   modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
   modalContent: {
     backgroundColor: 'white', borderRadius: 10, padding: 20, alignItems: 'center',

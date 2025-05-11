@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TextInput, 
-  TouchableOpacity, 
-  ScrollView, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
@@ -26,10 +26,10 @@ import { Ionicons } from '@expo/vector-icons';
  * @param {Function} props.onFormRef - Callback to pass form reference for external control
  * @returns {JSX.Element} - Meter reading form component
  */
-const MeterReadingForm = ({ 
-  initialData = {}, 
-  onSubmit, 
-  onCancel, 
+const MeterReadingForm = ({
+  initialData = {},
+  onSubmit,
+  onCancel,
   onTakePhoto,
   isSaving = false,
   capturedImage = null,
@@ -38,7 +38,7 @@ const MeterReadingForm = ({
   // Estado do formulário
   const [formData, setFormData] = useState({
     meter_id: '',
-    reading_value: '',
+    leitura_atual: '', // Alterado de reading_value para leitura_atual
     client_name: '',
     address: '',
     neighborhood: '',
@@ -47,22 +47,22 @@ const MeterReadingForm = ({
     image_path: null,
     ...initialData
   });
-  
+
   const [errors, setErrors] = useState({});
-  
+
   // Atualizar caminho da imagem quando capturedImage mudar
   useEffect(() => {
     if (capturedImage) {
-      console.log("Atualizando imagem no formulário:", 
+      console.log("Atualizando imagem no formulário:",
         Platform.OS === 'web' ? 'Imagem em formato web' : capturedImage.uri.substring(0, 30) + '...');
-      
+
       setFormData(prev => ({
         ...prev,
         image_path: capturedImage.uri // Sempre usar o URI, seja no formato data:image/jpeg;base64 (web) ou file:// (nativo)
       }));
     }
   }, [capturedImage]);
-  
+
   // Preservar a imagem inicial quando o componente for montado
   useEffect(() => {
     if (initialData && initialData.image_path) {
@@ -72,7 +72,7 @@ const MeterReadingForm = ({
       }));
     }
   }, []);
-  
+
   // Expor métodos para atualização externa do formulário
   useEffect(() => {
     if (onFormRef) {
@@ -86,7 +86,7 @@ const MeterReadingForm = ({
       });
     }
   }, [formData]);
-  
+
   // Atualizar campo do formulário
   const handleChange = (field, value) => {
     // Limpar erro quando campo é alterado
@@ -94,31 +94,31 @@ const MeterReadingForm = ({
       ...prev,
       [field]: null
     }));
-    
+
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
   };
-  
+
   // Validar formulário
   const validateForm = () => {
     const newErrors = {};
-    
+
     if (!formData.meter_id.trim()) {
       newErrors.meter_id = 'O número do medidor é obrigatório';
     }
-    
-    if (!formData.reading_value.trim()) {
-      newErrors.reading_value = 'A leitura é obrigatória';
-    } else if (!/^\d+(\.\d+)?$/.test(formData.reading_value)) {
-      newErrors.reading_value = 'A leitura deve ser um número válido';
+
+    if (!formData.leitura_atual.trim()) { // Validar leitura_atual
+      newErrors.leitura_atual = 'A leitura é obrigatória'; // Erro para leitura_atual
+    } else if (!/^\d+(\.\d+)?$/.test(formData.leitura_atual)) { // Validar leitura_atual
+      newErrors.leitura_atual = 'A leitura deve ser um número válido'; // Erro para leitura_atual
     }
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
-  
+
   // Remover a foto
   const handleRemovePhoto = () => {
     setFormData(prev => ({
@@ -126,7 +126,7 @@ const MeterReadingForm = ({
       image_path: null
     }));
   };
-  
+
   // Submeter formulário
   const handleSubmit = () => {
     if (validateForm()) {
@@ -139,13 +139,13 @@ const MeterReadingForm = ({
       );
     }
   };
-  
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.formContainer}
         keyboardShouldPersistTaps="handled"
@@ -165,22 +165,22 @@ const MeterReadingForm = ({
             <Text style={styles.errorText}>{errors.meter_id}</Text>
           )}
         </View>
-        
+
         {/* Leitura do medidor */}
         <View style={styles.fieldContainer}>
           <Text style={styles.label}>Leitura *</Text>
           <TextInput
-            style={[styles.input, errors.reading_value && styles.inputError]}
-            value={formData.reading_value}
-            onChangeText={(value) => handleChange('reading_value', value)}
+            style={[styles.input, errors.leitura_atual && styles.inputError]} // Validar leitura_atual
+            value={formData.leitura_atual} // Usar leitura_atual
+            onChangeText={(value) => handleChange('leitura_atual', value)} // Atualizar leitura_atual
             placeholder="Ex: 12345.67"
             keyboardType="numeric"
           />
-          {errors.reading_value && (
-            <Text style={styles.errorText}>{errors.reading_value}</Text>
+          {errors.leitura_atual && ( // Erro para leitura_atual
+            <Text style={styles.errorText}>{errors.leitura_atual}</Text> // Erro para leitura_atual
           )}
         </View>
-        
+
         {/* Nome do cliente */}
         <View style={styles.fieldContainer}>
           <Text style={styles.label}>Nome do Cliente</Text>
@@ -191,7 +191,7 @@ const MeterReadingForm = ({
             placeholder="Ex: João Silva"
           />
         </View>
-        
+
         {/* Endereço */}
         <View style={styles.fieldContainer}>
           <Text style={styles.label}>Endereço</Text>
@@ -226,7 +226,7 @@ const MeterReadingForm = ({
             defaultValue="Rio de Janeiro"
           />
         </View>
-        
+
         {/* Observações */}
         <View style={styles.fieldContainer}>
           <Text style={styles.label}>Observações</Text>
@@ -239,11 +239,11 @@ const MeterReadingForm = ({
             numberOfLines={3}
           />
         </View>
-        
+
         {/* Foto do medidor */}
         <View style={styles.fieldContainer}>
           <Text style={styles.label}>Foto do Medidor</Text>
-          
+
           {formData.image_path ? (
             <View style={styles.imageContainer}>
               <Image
@@ -269,7 +269,7 @@ const MeterReadingForm = ({
           )}
         </View>
       </ScrollView>
-      
+
       {/* Botões de ação */}
       <View style={styles.actions}>
         <TouchableOpacity
@@ -279,7 +279,7 @@ const MeterReadingForm = ({
         >
           <Text style={styles.cancelButtonText}>Cancelar</Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
           style={[styles.button, styles.submitButton, isSaving && styles.buttonDisabled]}
           onPress={handleSubmit}

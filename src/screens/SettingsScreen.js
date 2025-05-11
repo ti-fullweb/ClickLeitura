@@ -6,24 +6,29 @@ import {
   TouchableOpacity, 
   Switch, 
   Alert, 
-  ScrollView,
   Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../context/AppContext';
 import SyncIndicator from '../components/SyncIndicator';
+import { useNavigation } from '@react-navigation/native'; // Importar useNavigation
+import { supabase } from '../services/supabase'; // Importar supabase
+import { storage } from '../utils/storage'; // Importar MMKV storage
+import StandardLayout from '../components/layouts/StandardLayout';
+
 // Função local para gerar deviceId
 const getDeviceId = () => {
   return `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 };
 
 const SettingsScreen = () => {
+  const navigation = useNavigation(); // Obter objeto de navegação
   const { 
     isConnected, 
     isSyncing, 
     pendingCount, 
     forceSyncReadings,
-    clearData
+    clearDatabase
   } = useAppContext();
 
   const [deviceId, setDeviceId] = useState(null);
@@ -61,10 +66,36 @@ const SettingsScreen = () => {
     );
   };
 
+  // Função para lidar com o logout
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error("Erro ao fazer logout:", error);
+        Alert.alert("Erro", "Não foi possível fazer logout. Tente novamente.");
+      } else {
+        console.log("Usuário desconectado.");
+        // Limpar dados sensíveis do MMKV, se necessário (perfil do leiturista, roteiro)
+        storage.delete('leiturista');
+        storage.delete('roteiro_dia');
+        // Navegar de volta para a tela de Login e resetar a navegação
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    } catch (error) {
+      console.error("Erro inesperado durante o logout:", error);
+      Alert.alert("Erro", "Ocorreu um erro inesperado ao fazer logout.");
+    }
+  };
+
+
   // Limpar dados
   const handleClearData = async () => {
     try {
-      const success = await clearData();
+      const success = await clearDatabase();
 
       if (success) {
         Alert.alert('Sucesso', 'Todos os dados foram removidos do dispositivo.');
@@ -146,113 +177,127 @@ const SettingsScreen = () => {
   };
 
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {/* Configurações de Sincronização */}
-        {renderSection('Sincronização', (
-          <>
-            {renderSwitchItem(
-              'cloud-upload-outline',
-              'Sincronização Automática',
-              autoSync,
-              setAutoSync
-            )}
+    <StandardLayout
+      title="Configurações"
+      footer={
+        <SyncIndicator
+          isConnected={isConnected}
+          pendingCount={pendingCount}
+          isSyncing={isSyncing}
+          onSyncPress={forceSyncReadings}
+        />
+      }
+    >
+      {/* Configurações de Sincronização */}
+      {renderSection('Sincronização', (
+        <>
+          {renderSwitchItem(
+            'cloud-upload-outline',
+            'Sincronização Automática',
+            autoSync,
+            setAutoSync
+          )}
 
-            {renderActionItem(
-              'sync-outline',
-              'Sincronizar Agora',
-              `${pendingCount} leituras pendentes`,
-              forceSyncReadings,
-              false
-            )}
+          {renderActionItem(
+            'sync-outline',
+            'Sincronizar Agora',
+            `${pendingCount} leituras pendentes`,
+            forceSyncReadings,
+            false
+          )}
 
-            {deviceId && (
-              <View style={styles.deviceIdContainer}>
-                <Text style={styles.deviceIdLabel}>ID do Dispositivo:</Text>
-                <Text style={styles.deviceId}>{deviceId}</Text>
-              </View>
-            )}
-          </>
-        ))}
+          {deviceId && (
+            <View style={styles.deviceIdContainer}>
+              <Text style={styles.deviceIdLabel}>ID do Dispositivo:</Text>
+              <Text style={styles.deviceId}>{deviceId}</Text>
+            </View>
+          )}
+        </>
+      ))}
 
-        {/* Configurações de Aparência */}
-        {renderSection('Aparência', (
-          <>
-            {renderSwitchItem(
-              'moon-outline',
-              'Modo Escuro',
-              darkMode,
-              toggleDarkMode
-            )}
+      {/* Configurações de Aparência */}
+      {renderSection('Aparência', (
+        <>
+          {renderSwitchItem(
+            'moon-outline',
+            'Modo Escuro',
+            darkMode,
+            toggleDarkMode
+          )}
 
-            {renderSwitchItem(
-              'notifications-outline',
-              'Notificações',
-              notifications,
-              setNotifications
-            )}
-          </>
-        ))}
+          {renderSwitchItem(
+            'notifications-outline',
+            'Notificações',
+            notifications,
+            setNotifications
+          )}
+        </>
+      ))}
 
-        {/* Sobre o App */}
-        {renderSection('Sobre', (
-          <>
-            {renderActionItem(
-              'information-circle-outline',
-              'Sobre o App',
-              'Versão 1.0.0',
-              () => {}
-            )}
+      {/* Sobre o App */}
+      {renderSection('Sobre', (
+        <>
+          {renderActionItem(
+            'information-circle-outline',
+            'Sobre o App',
+            'Versão 1.0.0',
+            () => {}
+          )}
 
-            {renderActionItem(
-              'help-circle-outline',
-              'Ajuda & Suporte',
-              null,
-              () => {}
-            )}
+          {renderActionItem(
+            'help-circle-outline',
+            'Ajuda & Suporte',
+            null,
+            () => {}
+          )}
 
-            {renderActionItem(
-              'document-text-outline',
-              'Termos de Uso',
-              null,
-              () => {}
-            )}
-          </>
-        ))}
+          {renderActionItem(
+            'document-text-outline',
+            'Termos de Uso',
+            null,
+            () => {}
+          )}
+        </>
+      ))}
 
-        {/* Gerenciamento de Dados */}
-        {renderSection('Gerenciamento de Dados', (
-          <>
-            {renderActionItem(
-              'trash-outline',
-              'Limpar Todos os Dados',
-              'Remove todas as leituras salvas localmente',
-              confirmClearData,
-              true
-            )}
-          </>
-        ))}
-      </ScrollView>
+      {/* Gerenciamento de Dados */}
+      {renderSection('Gerenciamento de Dados', (
+        <>
+          {renderActionItem(
+            'trash-outline',
+            'Limpar Todos os Dados',
+            'Remove todas as leituras salvas localmente',
+            confirmClearData,
+            true
+          )}
+        </>
+      ))}
 
-      {/* Indicador de sincronização */}
-      <SyncIndicator
-        isConnected={isConnected}
-        pendingCount={pendingCount}
-        isSyncing={isSyncing}
-        onSyncPress={forceSyncReadings}
-      />
-    </View>
+      {/* Botão de Logout */}
+      {renderSection('Conta', ( // Nova seção para o botão de logout
+         <>
+           {renderActionItem(
+             'log-out-outline',
+             'Sair',
+             'Desconectar da sua conta',
+             handleLogout,
+             true // Botão de logout geralmente é destrutivo visualmente
+           )}
+         </>
+      ))}
+    </StandardLayout>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f7fafc',
-  },
-  scrollView: {
-    flex: 1,
-  },
+  // Removido estilos que agora são tratados pelo StandardLayout
+  // container: {
+  //   flex: 1,
+  //   backgroundColor: '#f7fafc',
+  // },
+  // scrollView: {
+  //   flex: 1,
+  // },
   section: {
     marginBottom: 24,
   },

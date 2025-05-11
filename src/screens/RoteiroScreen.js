@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   RefreshControl,
   StatusBar
 } from 'react-native';
@@ -16,14 +15,18 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   getRoteiroDoDia, // Função que busca/sincroniza o roteiro completo
   sincronizarAlteracoesPendentes, // Função para sincronizar tudo (era sincronizarLeiturasPendentes)
-  getProgressoRoteiroLocal // Função que calcula progresso local (era getProgressoRoteiro)
-} from '../services/syncRoteiro';
+  getProgressoRoteiroLocal, // Função que calcula progresso local (era getProgressoRoteiro)
+} from '../services/syncRoteiro'; // Manter importações diretas para funções usadas
+import * as syncRoteiroService from '../services/syncRoteiro'; // Importar o módulo inteiro como alias
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { useAppContext } from '../context/AppContext'; // Importar useAppContext
 import eventBus from '../services/eventBus';
 import { parseISO } from 'date-fns'; // Para converter string ISO para Date
+import { storage } from '../utils/storage'; // Importar MMKV storage (para dados do leiturista)
+import StandardLayout from '../components/layouts/StandardLayout';
 
-// ID do leiturista para teste (do seed.sql)
-const LEITURISTA_ID_TESTE = '8f9b7c6e-5d4a-4b3c-8a1f-9e0d2c1b3a0e';
+// ID do leiturista para teste (do seed.sql) - Manter comentado ou remover se não for mais necessário
+// const LEITURISTA_ID_TESTE = '8f9b7c6e-5d4a-4b3c-8a1f-9e0d2c1b3a0e';
 
 const RoteiroScreen = ({ navigation }) => {
   const [roteiroCompleto, setRoteiroCompleto] = useState(null); // Armazena o objeto completo do roteiro
@@ -33,6 +36,7 @@ const RoteiroScreen = ({ navigation }) => {
   const [dataAtual, setDataAtual] = useState(new Date()); // Usar objeto Date
   const [progresso, setProgresso] = useState({ total: 0, visitadas: 0, pendentes: 0, percentual: 0 });
   const { isConnected } = useNetworkStatus();
+  const { getReadingByRoteiroResidenciaId } = useAppContext(); // Obter a função do contexto
 
   // Função auxiliar para formatar Date para YYYY-MM-DD
   function formatarDataISO(data) {
@@ -74,19 +78,79 @@ const RoteiroScreen = ({ navigation }) => {
       setRoteiroAgrupado([]); // Limpa antes de carregar
       setRoteiroCompleto(null);
 
-      // Chama a função do serviço com ID e Data
-      const dados = await getRoteiroDoDia(LEITURISTA_ID_TESTE, dataAtual);
-      setRoteiroCompleto(dados); // Salva o roteiro completo
+      // Obter o ID do leiturista logado do MMKV
+      console.log("Tentando obter leiturista do MMKV...");
+      const leituristaString = storage.getString('leiturista');
+      console.log("Resultado storage.getString('leiturista'):", leituristaString);
+      let leituristaId = null;
+      let leituristaData = null; // Declarar leituristaData aqui
 
-      if (dados && dados.roteiro_residencias) {
-        const agrupado = agruparPorRua(dados.roteiro_residencias);
-        setRoteiroAgrupado(agrupado); // Salva o roteiro agrupado para a lista
+      if (leituristaString) {
+        try {
+          leituristaData = JSON.parse(leituristaString); // Atribuir ao leituristaData
+          console.log("Dados do leiturista parseados:", leituristaData);
+          // Verificar se leituristaData é um objeto válido e tem a propriedade id
+          if (leituristaData && typeof leituristaData === 'object' && leituristaData.id) {
+             leituristaId = leituristaData.id; // Usar o ID do registro na tabela leituristas
+             console.log("Leiturista ID obtido do MMKV:", leituristaId);
+          } else {
+             console.warn("Dados do leiturista no MMKV inválidos ou sem ID.");
+          }
+        } catch (parseError) {
+          console.error("Erro ao parsear dados do leiturista do MMKV em LeituraRoteiroScreen:", parseError);
+          // leituristaId permanece null
+        }
       } else {
-        setRoteiroAgrupado([]); // Garante que está vazio se não houver dados
+         console.warn("Nenhum dado de leiturista encontrado no MMKV.");
       }
 
+
+      if (!leituristaId) {
+        console.warn("Leiturista ID final é null. Não é possível carregar o roteiro.");
+        setLoading(false);
+        setRefreshing(false);
+        Alert.alert("Erro", "Dados do leiturista não encontrados. Por favor, faça login novamente.");
+        // Opcional: Redirecionar para a tela de login
+        // navigation.navigate('Login');
+        return;
+      }
+
+
+      // Chama a função do serviço com ID e Data
+      const dados = await getRoteiroDoDia(leituristaId, dataAtual);
+      setRoteiroCompleto(dados); // Salva o roteiro completo
+
+      // Gerar a chave de armazenamento usando a função helper do alias
+      const storageKey = syncRoteiroService.getRoteiroStorageKey(leituristaId, dataAtual);
+      console.log("Chave de armazenamento do roteiro:", storageKey);
+
+      if (dados) { // Verificar se dados não é null
+        // Salvar o roteiro completo no MMKV usando a instância do alias e a chave correta
+        syncRoteiroService.roteiroStorage.set(storageKey, JSON.stringify(dados));
+        console.log(`Roteiro do dia (${storageKey}) salvo no MMKV.`);
+
+        if (dados.roteiro_residencias) {
+           const agrupado = agruparPorRua(dados.roteiro_residencias);
+           setRoteiroAgrupado(agrupado); // Salva o roteiro agrupado para a lista
+        } else {
+           setRoteiroAgrupado([]); // Garante que está vazio se não houver residências
+        }
+
+      } else {
+        setRoteiroAgrupado([]); // Garante que está vazio se não houver dados
+        // Remover roteiro antigo se não houver novo, usando a chave correta
+        if (syncRoteiroService.roteiroStorage.contains(storageKey)) { // Corrigido: usar alias
+           syncRoteiroService.roteiroStorage.delete(storageKey); // Corrigido: usar alias
+           console.log(`Nenhum roteiro encontrado, removendo roteiro antigo (${storageKey}) do MMKV.`);
+        } else {
+           console.log(`Nenhum roteiro encontrado e nenhuma chave (${storageKey}) no MMKV para remover.`);
+        }
+      }
+
+
       // Calcula o progresso usando a função local
-      const progressoAtual = await getProgressoRoteiroLocal(LEITURISTA_ID_TESTE, dataAtual);
+      // Precisa passar o leituristaId correto aqui também
+      const progressoAtual = await getProgressoRoteiroLocal(leituristaId, dataAtual);
       setProgresso(progressoAtual);
 
     } catch (error) {
@@ -94,7 +158,13 @@ const RoteiroScreen = ({ navigation }) => {
       Alert.alert('Erro', 'Não foi possível carregar o roteiro.');
       setRoteiroCompleto(null);
       setRoteiroAgrupado([]);
-      setProgresso({ total: 0, visitadas: 0, pendentes: 0, percentual: 0 });
+        setProgresso({ total: 0, visitadas: 0, pendentes: 0, percentual: 0 });
+      // Limpar MMKV em caso de erro, usando a instância do alias e a chave correta
+      const storageKeyOnError = syncRoteiroService.getRoteiroStorageKey(leituristaId, dataAtual);
+      if (syncRoteiroService.roteiroStorage.contains(storageKeyOnError)) { // Corrigido: usar alias
+         syncRoteiroService.roteiroStorage.delete(storageKeyOnError); // Corrigido: usar alias
+         console.log(`Roteiro (${storageKeyOnError}) removido do MMKV devido a erro.`);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -124,39 +194,54 @@ const RoteiroScreen = ({ navigation }) => {
   };
 
   // Atualiza a navegação para usar a nova estrutura de dados (item de roteiro_residencias)
-  const visitarEndereco = (itemRoteiroResidencia) => {
-     // Define se a visita já foi feita com base no status
-     const statusVisitado = ['concluido_com_leitura', 'concluido_sem_leitura', 'impedido'];
-     const foiVisitado = statusVisitado.includes(itemRoteiroResidencia.status);
+  const visitarEndereco = async (itemRoteiroResidencia) => {
+    // Define se a visita já foi feita com base no status
+    const statusVisitado = ['concluido_com_leitura', 'concluido_sem_leitura', 'impedido'];
+    const foiVisitado = statusVisitado.includes(itemRoteiroResidencia.status);
 
-     // TODO: Determinar se existe uma leitura associada para ir para ReadingDetails
-     // Por enquanto, vamos sempre para LeituraRoteiro
-     const destino = 'LeituraRoteiro'; // Ou 'ReadingDetails' se já houver leitura
+    // Determinar o destino com base no status da residência
+    let destino = 'LeituraRoteiro'; // Destino padrão para registrar leitura
+    let params = {
+      roteiroResidencia: itemRoteiroResidencia,
+      roteiroResidenciaId: itemRoteiroResidencia.id,
+      residenciaId: itemRoteiroResidencia.residencia_id,
+      hidrometroNumero: itemRoteiroResidencia.residencias?.hidrometro_numero,
+      enderecoFormatado: `${itemRoteiroResidencia.residencias?.ruas?.nome}, ${itemRoteiroResidencia.residencias?.numero}`,
+      leituraAnterior: itemRoteiroResidencia.leitura_anterior_snapshot,
+      dataRoteiroISO: formatarDataISO(dataAtual),
+    };
 
-     const params = {
-       // Passar o objeto roteiro_residencia inteiro pode ser útil
-       roteiroResidencia: itemRoteiroResidencia,
-       // Passar IDs e informações chave explicitamente também é bom
-       roteiroResidenciaId: itemRoteiroResidencia.id,
-       residenciaId: itemRoteiroResidencia.residencia_id,
-       hidrometroNumero: itemRoteiroResidencia.residencias?.hidrometro_numero,
-       enderecoFormatado: `${itemRoteiroResidencia.residencias?.ruas?.nome}, ${itemRoteiroResidencia.residencias?.numero}`,
-       leituraAnterior: itemRoteiroResidencia.leitura_anterior_snapshot,
-       dataRoteiroISO: formatarDataISO(dataAtual), // Passar a data como string ISO
-       leituristaId: LEITURISTA_ID_TESTE,
-     };
+    if (itemRoteiroResidencia.status === 'concluido_com_leitura' || itemRoteiroResidencia.status === 'concluido_sem_leitura') {
+      destino = 'ReadingDetails'; // Se já tem leitura, vai para detalhes
+      try {
+        console.log(`Buscando leitura para roteiroResidenciaId: ${itemRoteiroResidencia.id}`);
+        const reading = await getReadingByRoteiroResidenciaId(itemRoteiroResidencia.id);
+        if (reading && reading.id) {
+          params.readingId = reading.id; // Adicionar o ID da leitura aos parâmetros
+          console.log(`Leitura encontrada com ID: ${reading.id}. Navegando para ReadingDetails.`);
+        } else {
+          Alert.alert('Erro', 'Não foi possível encontrar os dados da leitura salva para este endereço.');
+          console.warn(`Leitura não encontrada para roteiroResidenciaId: ${itemRoteiroResidencia.id}`);
+          return; // Não navegar se a leitura não for encontrada
+        }
+      } catch (error) {
+        Alert.alert('Erro', 'Ocorreu um erro ao buscar os dados da leitura.');
+        console.error('Erro ao buscar leitura por roteiroResidenciaId:', error);
+        return; // Não navegar em caso de erro
+      }
+    }
+    // TODO: Adicionar lógica para ir para ReadingDetails se houver leitura salva localmente
+    // mesmo que o status no roteiro ainda não reflita isso (sincronização pendente)
 
-     console.log("Navegando para:", destino, "com params:", params);
-     navigation.navigate(destino, params);
+    console.log("Navegando para:", destino, "com params:", params);
+    navigation.navigate(destino, params);
   };
 
   // Adicionar listener de foco para recarregar o roteiro e emitir evento
   useEffect(() => {
     const unsubscribeFocus = navigation.addListener('focus', async () => {
       console.log('RoteiroScreen ganhou foco, recarregando dados...');
-      // Não precisa chamar carregarRoteiro aqui necessariamente se a atualização
-      // for feita na tela de leitura e o eventBus for usado corretamente.
-      // Mas vamos manter por segurança por enquanto.
+      // Recarrega o roteiro ao focar na tela
       await carregarRoteiro();
       eventBus.emit('leituraAtualizada'); // Emitir evento para atualizar HomeScreen
     });
@@ -249,12 +334,11 @@ const RoteiroScreen = ({ navigation }) => {
   const dataFormatadaExibicao = formatarDataExibicao(dataAtual);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <StandardLayout title="Seu Roteiro do Dia" disableScroll={true}>
       <StatusBar barStyle="dark-content" backgroundColor="#f8fafc" />
 
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Roteiro do Dia</Text>
-        <Text style={styles.headerDate}>{dataFormatadaExibicao}</Text>
+          <Text style={styles.headerDate}>{dataFormatadaExibicao}</Text>
         <View style={styles.connectionStatus}>
           <View style={[styles.connectionIndicator, isConnected ? styles.online : styles.offline]} />
           <Text style={styles.connectionText}>{isConnected ? 'Online' : 'Offline'}</Text>
@@ -281,9 +365,9 @@ const RoteiroScreen = ({ navigation }) => {
         ListEmptyComponent={() => (
           <View style={styles.emptyContainer}>
             <Ionicons name="map-outline" size={64} color="#94a3b8" />
-            {/* Ajustar texto de vazio */}
-            <Text style={styles.emptyText}>{loading ? 'Carregando...' : `Nenhum endereço no roteiro para ${dataFormatadaExibicao}.`}</Text>
-            <Text style={styles.emptySubText}>Verifique a data ou tente atualizar.</Text>
+            {/* Ajustar texto de vazio para ser mais claro */}
+            <Text style={styles.emptyText}>{loading ? 'Carregando...' : `Não há leituras agendadas para ${dataFormatadaExibicao}.`}</Text>
+            <Text style={styles.emptySubText}>Verifique a data ou tente sincronizar para obter o roteiro mais recente.</Text>
             <TouchableOpacity style={styles.refreshButton} onPress={onRefresh} disabled={refreshing || loading}>
               <Text style={styles.refreshButtonText}>{refreshing ? 'Atualizando...' : 'Atualizar Roteiro'}</Text>
             </TouchableOpacity>
@@ -292,12 +376,13 @@ const RoteiroScreen = ({ navigation }) => {
         // Ajustar estilo do container vazio
         contentContainerStyle={roteiroAgrupado.length === 0 ? styles.emptyListContent : { paddingBottom: 20 }}
       />
-    </SafeAreaView>
+    </StandardLayout>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  // Removido estilos que agora são tratados pelo StandardLayout
+  // container: { flex: 1, backgroundColor: '#f8fafc' },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f8fafc' },
   loadingText: { marginTop: 12, fontSize: 16, color: '#64748b' },
   header: { backgroundColor: '#f8fafc', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },

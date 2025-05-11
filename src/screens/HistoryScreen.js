@@ -15,6 +15,7 @@ import ReadingListItem from '../components/ReadingListItem';
 import SyncIndicator from '../components/SyncIndicator';
 import { exportReadings } from '../utils/exportUtils';
 import ReadingDetailsScreen from './ReadingDetailsScreen';
+import StandardLayout from '../components/layouts/StandardLayout';
 
 const HistoryScreen = ({ navigation }) => {
   const { 
@@ -164,7 +165,18 @@ const HistoryScreen = ({ navigation }) => {
   );
   
   return (
-    <View style={styles.container}>
+    <StandardLayout
+      title="Histórico de Leituras"
+      footer={
+        <SyncIndicator 
+          isConnected={isConnected}
+          pendingCount={pendingCount}
+          isSyncing={isSyncing}
+          onSyncPress={forceSyncReadings}
+        />
+      }
+      disableScroll={true}
+    >
       <FlatList
         data={filteredReadings}
         renderItem={renderItem}
@@ -172,13 +184,6 @@ const HistoryScreen = ({ navigation }) => {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={EmptyList}
-      />
-      
-      <SyncIndicator 
-        isConnected={isConnected}
-        pendingCount={pendingCount}
-        isSyncing={isSyncing}
-        onSyncPress={forceSyncReadings}
       />
       
       {/* Modal para detalhes da leitura */}
@@ -197,15 +202,16 @@ const HistoryScreen = ({ navigation }) => {
           />
         )}
       </Modal>
-    </View>
+    </StandardLayout>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f7fafc',
-  },
+  // Removido estilos que agora são tratados pelo StandardLayout
+  // container: {
+  //   flex: 1,
+  //   backgroundColor: '#f7fafc',
+  // },
   header: {
     padding: 16,
     backgroundColor: '#fff',

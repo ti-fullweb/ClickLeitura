@@ -1,35 +1,66 @@
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import { useNavigation } from '@react-navigation/native';
 import eventBus from '../services/eventBus';
 import { sincronizarComWebhook } from '../services/syncWebhookService';
-import { getProgressoRoteiroLocal } from '../services/syncRoteiro';
-const LEITURISTA_ID = '8f9b7c6e-5d4a-4b3c-8a1f-9e0d2c1b3a0e'; // Importar getProgressoRoteiro
+import { sincronizarLeiturasPendentes } from '../services/syncLeiturasSupabase'; // novo import
+import { storage } from '../utils/storage';
+import { getProgressoRoteiroLocal } from '../services/syncRoteiro'; // Importar getProgressoRoteiro
+import StandardLayout from '../components/layouts/StandardLayout';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
   const [total, setTotal] = useState(0);
   const [completed, setCompleted] = useState(0);
   const [pending, setPending] = useState(0);
+  const [percentage, setPercentage] = useState(0); // Estado para a porcentagem
   const [isConnected, setIsConnected] = useState(true);
   const [lastSync, setLastSync] = useState(null);
 
   const fetchData = async () => {
     try {
+      const leituristaString = storage.getString('leiturista');
+      if (!leituristaString) {
+        console.warn("Leiturista não encontrado no MMKV para HomeScreen.");
+        Alert.alert("Erro", "Dados do leiturista não encontrados. Faça login novamente.");
+        setTotal(0);
+        setCompleted(0);
+        setPending(0);
+        setPercentage(0);
+        setLastSync(new Date());
+        return;
+      }
+
+      const leituristaData = JSON.parse(leituristaString);
+      const leituristaId = leituristaData?.id;
+
+      if (!leituristaId) {
+        console.warn("ID do Leiturista inválido ou não encontrado nos dados do MMKV.");
+        Alert.alert("Erro", "ID do leiturista inválido. Faça login novamente.");
+        setTotal(0);
+        setCompleted(0);
+        setPending(0);
+        setPercentage(0);
+        setLastSync(new Date());
+        return;
+      }
+
       // Calcular a data atual no formato ISO (apenas data)
       const today = new Date();
-      const dataAtualISO = today.toISOString().split('T')[0];
+      // const dataAtualISO = today.toISOString().split('T')[0]; // Usar o objeto Date diretamente
 
       // Obter o progresso do roteiro para o dia atual
-      const progressoRoteiro = await getProgressoRoteiroLocal(LEITURISTA_ID, new Date(dataAtualISO));
+      const progressoRoteiro = await getProgressoRoteiroLocal(leituristaId, today);
 
       // Atualizar os estados com os dados do progresso do roteiro
       setTotal(progressoRoteiro.total);
       setCompleted(progressoRoteiro.visitadas);
       setPending(progressoRoteiro.pendentes);
+      const perc = progressoRoteiro.total > 0 ? (progressoRoteiro.visitadas / progressoRoteiro.total) * 100 : 0;
+      setPercentage(perc);
 
       setLastSync(new Date()); // Atualizar hora da última busca/sincronização visual
     } catch (error) {
@@ -38,6 +69,7 @@ export default function HomeScreen() {
       setTotal(0);
       setCompleted(0);
       setPending(0);
+      setPercentage(0);
       setLastSync(new Date());
     }
   };
@@ -69,17 +101,40 @@ export default function HomeScreen() {
   const formatTime = (date) =>
     date ? `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}` : '--:--';
 
-  const handleSync = async () => {
-    const result = await sincronizarComWebhook();
-    Alert.alert("Sincronização", result.message);
-  };
+const handleSync = async () => {
+  console.log("📲 Botão de sincronizar pressionado");
+  const resultado = await sincronizarLeiturasPendentes();
+
+  let alertTitle = "Erro"; // Padrão para erro
+
+  if (resultado.success) {
+    // Se sucesso, verifica a mensagem para determinar o título
+    if (resultado.message.includes("Nenhuma leitura válida para sincronizar encontrada") || resultado.message.includes("Nenhuma leitura pendente para sincronizar")) {
+      alertTitle = "Alerta";
+    } else {
+      alertTitle = "Sucesso";
+    }
+  }
+
+  Alert.alert(alertTitle, resultado.message);
+
+  console.log("📊 Resultado da sincronização:", resultado);
+  await fetchData(); // Recarregar progresso após sync
+};
+
+const mostrarLeiturasPendentes = () => {
+  const leiturasJson = storage.getString('leiturasPendentes');
+  if (!leiturasJson) {
+    Alert.alert("Info", "Nenhuma leitura pendente.");
+    return;
+  }
+  const leituras = JSON.parse(leiturasJson);
+  console.log("🔎 Leituras pendentes:", leituras);
+  Alert.alert("Info", `Total pendentes: ${leituras.length}`);
+};
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Painel Principal</Text>
-      </View>
-
+    <StandardLayout title="Painel Principal">
       <View style={styles.statusBar}>
         <Ionicons name={isConnected ? "wifi" : "wifi-off"} size={16} color={isConnected ? "#047857" : "#ef4444"} style={{ marginRight: 8 }} />
         <Text style={styles.statusText}>
@@ -91,6 +146,11 @@ export default function HomeScreen() {
         <TouchableOpacity style={[styles.actionButton, styles.syncBtn]} onPress={handleSync}>
           <View style={styles.iconWrapper}><Feather name="refresh-cw" size={24} color="white" /></View>
           <Text style={styles.buttonText}>Sincronizar</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#f59e0b' }]} onPress={mostrarLeiturasPendentes}>
+          <View style={styles.iconWrapper}><Feather name="eye" size={24} color="white" /></View>
+          <Text style={styles.buttonText}>Ver Pendentes</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
@@ -140,14 +200,15 @@ export default function HomeScreen() {
           </View>
         </View>
       </View>
-    </ScrollView>
+    </StandardLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: '#f5f7fa' },
-  header: { backgroundColor: '#1e40af', padding: 16 },
-  headerText: { color: 'white', fontWeight: 'bold', fontSize: 18, textAlign: 'center' },
+  // Removido estilos que agora são tratados pelo StandardLayout
+  // container: { backgroundColor: '#f5f7fa' },
+  // header: { backgroundColor: '#1e40af', padding: 16 },
+  // headerText: { color: 'white', fontWeight: 'bold', fontSize: 18, textAlign: 'center' },
   statusBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 10, backgroundColor: '#d1fae5' },
   statusText: { color: '#047857', fontWeight: '500', fontSize: 14 },
   actionsContainer: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, gap: 12, flexWrap: 'wrap' },

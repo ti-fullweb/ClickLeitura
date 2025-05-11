@@ -329,6 +329,35 @@ export const useDatabase = () => {
     }
   }, [isWeb, loadStats, readings]);
 
+  /**
+   * Get a reading by roteiro_residencia_id
+   * @param {string} roteiroResidenciaId - roteiro_residencia_id of the reading to get
+   * @returns {Promise<Object|null>} - Reading object or null if not found
+   */
+  const getReadingByRoteiroResidenciaId = useCallback(async (roteiroResidenciaId) => {
+    try {
+      // Obter todas as leituras salvas
+      const allReadings = isWeb ? await getReadingsWeb() : await getReadings();
+
+      // Encontrar a leitura com o roteiro_residencia_id correspondente
+      const foundReading = allReadings.find(reading => reading.roteiro_residencia_id === roteiroResidenciaId);
+
+      if (!foundReading) {
+        console.warn(`Reading with roteiro_residencia_id ${roteiroResidenciaId} not found.`);
+        return null;
+      }
+
+      console.log(`Found reading with roteiro_residencia_id ${roteiroResidenciaId}`);
+      return foundReading;
+
+    } catch (err) {
+      console.error(`Error getting reading by roteiro_residencia_id ${roteiroResidenciaId}:`, err);
+      setError(err.message);
+      throw err;
+    }
+  }, [isWeb]);
+
+
   // Inicializar banco de dados na montagem do componente
   useEffect(() => {
     initializeDatabase();
@@ -342,6 +371,7 @@ export const useDatabase = () => {
     addReading,
     updateReading: updateReadingData,
     getReadingById: getReadingByIdData,
+    getReadingByRoteiroResidenciaId, // Adicionar a nova função
     updateSyncStatus,
     clearAllData,
     refreshData: loadData,

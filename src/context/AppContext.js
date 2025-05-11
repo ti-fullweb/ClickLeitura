@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useDatabase, useDatabase as useMyDatabase } from '../hooks/useDatabase';
+import { useDatabase } from '../hooks/useDatabase'; // Usar apenas uma importação
 
 export const AppContext = React.createContext();
 
@@ -13,6 +13,9 @@ export const AppProvider = ({ children }) => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [syncError, setSyncError] = useState(null);
+
+  // Obter funções do hook useDatabase
+  const { addReading, getReadingById, updateReading, getReadingByRoteiroResidenciaId, clearDatabase } = useDatabase();
 
   useEffect(() => {
     loadDarkModePreference();
@@ -49,7 +52,11 @@ export const AppProvider = ({ children }) => {
       isSyncing,
       lastSyncTime,
       syncError,
-      addReading: useMyDatabase().addReading
+      addReading, // Incluir addReading
+      getReadingById, // Incluir getReadingById
+      updateReading, // Incluir updateReading
+      getReadingByRoteiroResidenciaId, // Incluir a nova função
+      clearDatabase, // Incluir clearDatabase
     }}>
       {children}
     </AppContext.Provider>

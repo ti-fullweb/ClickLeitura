@@ -17,8 +17,9 @@ import {
   deleteReading,
 } from "../database/database";
 import { StatusBar } from "expo-status-bar";
+import StandardLayout from '../components/layouts/StandardLayout';
 
-export default function SQLiteTestScreen() {
+function SQLiteTestScreen() {
   const [connectionStatus, setConnectionStatus] = useState(
     "Verificando conexão com SQLite...",
   );
@@ -168,9 +169,8 @@ export default function SQLiteTestScreen() {
   );
 
   return (
-    <View style={styles.container}>
+    <StandardLayout title="Teste SQLite - App Leiturista">
       <StatusBar style="auto" />
-      <Text style={styles.title}>Teste SQLite - App Leiturista</Text>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Status de Conexão</Text>
@@ -280,22 +280,23 @@ export default function SQLiteTestScreen() {
           <Text style={styles.emptyText}>Nenhuma leitura encontrada</Text>
         )}
       </View>
-    </View>
+    </StandardLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 16,
-    backgroundColor: "#f5f5f5",
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 16,
-    textAlign: "center",
-  },
+  // Removido estilos que agora são tratados pelo StandardLayout
+  // container: {
+  //   flex: 1,
+  //   padding: 16,
+  //   backgroundColor: "#f5f5f5",
+  // },
+  // title: {
+  //   fontSize: 20,
+  //   fontWeight: "bold",
+  //   marginBottom: 16,
+  //   textAlign: "center",
+  // },
   card: {
     backgroundColor: "white",
     borderRadius: 8,
@@ -387,3 +388,5 @@ const styles = StyleSheet.create({
     color: "#666",
   },
 });
+
+export default SQLiteTestScreen;

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { View, StyleSheet, Alert, Platform, Text, TouchableOpacity, Image, ScrollView } from 'react-native';
+import React, { useState, lazy, Suspense } from 'react';
+import { View, StyleSheet, Alert, Platform, Text, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useAppContext } from '../context/AppContext';
-import CameraComponent from '../components/Camera';
+// Importação dinâmica do CameraComponent
+const CameraComponent = lazy(() => import('../components/Camera'));
 import { Ionicons } from '@expo/vector-icons';
+import StandardLayout from '../components/layouts/StandardLayout';
 
 /**
  * Tela para captura de foto da fachada da casa
@@ -46,16 +48,86 @@ const FacadeScreen = ({ navigation }) => {
     setShowCamera(false);
   };
   
+  // Função para fazer upload da imagem para o Supabase Storage
+  const uploadImageToSupabase = async (imageUri) => {
+    try {
+      // Converter URI para Blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Gerar nome único para o arquivo
+      const fileExt = imageUri.split('.').pop();
+      const fileName = `${uuidv4()}.${fileExt}`;
+      const filePath = `fachadas/${fileName}`; // Pasta no Supabase Storage
+
+      // Fazer upload para o Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('fachadas') // Nome do bucket no Supabase Storage
+        .upload(filePath, blob, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      // Obter a URL pública
+      const { publicUrl, error: publicUrlError } = supabase.storage
+        .from('fachadas')
+        .getPublicUrl(filePath);
+
+      if (publicUrlError) {
+        throw publicUrlError;
+      }
+
+      return publicUrl;
+
+    } catch (error) {
+      console.error('Erro ao fazer upload para o Supabase:', error);
+      throw error;
+    }
+  };
+
   // Função para salvar a fachada
   const handleSaveFacade = async () => {
     if (!capturedImage) {
-      Alert.alert('Erro', 'Por favor, tire uma foto da fachada para continuar.');
+      Alert.alert('Atenção', 'Por favor, tire uma foto da fachada para continuar.');
       return;
     }
-    
+
     setIsSaving(true);
-    
+
     try {
+      // 1. Upload da imagem para o Supabase Storage
+      const imageUrl = await uploadImageToSupabase(capturedImage.uri);
+
+      // 2. Preparar dados para o webhook
+      const formData = new FormData();
+      formData.append('imageUrl', imageUrl);
+      formData.append('address', address);
+      formData.append('notes', notes);
+      formData.append('timestamp', new Date().toISOString());
+      // Adicione outros campos necessários para o webhook aqui
+
+      // 3. Enviar FormData para o webhook
+      const webhookUrl = 'https://n8n-n8n.n1n956.easypanel.host/webhook/Fimm-Fachada-da-Casa';
+      const webhookResponse = await fetch(webhookUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data', // Importante para FormData
+        },
+      });
+
+      if (!webhookResponse.ok) {
+        throw new Error(`Erro no webhook: ${webhookResponse.status} ${webhookResponse.statusText}`);
+      }
+
+      const webhookResult = await webhookResponse.json();
+      console.log('Resposta do webhook:', webhookResult);
+
+      // 4. Salvar dados no banco local (opcional, dependendo da necessidade)
       const facadeData = {
         meter_id: 'FACHADA', // Identificador especial para fachadas
         reading_value: '0', // Não aplicável para fachadas
@@ -63,37 +135,24 @@ const FacadeScreen = ({ navigation }) => {
         address: address,
         notes: notes,
         timestamp: new Date().toISOString(),
-        synced: false,
-        image_path: Platform.OS === 'web' && capturedImage.name 
-          ? capturedImage.name 
-          : capturedImage.uri,
+        synced: true, // Marcar como sincronizado pois já foi para o webhook
+        image_path: imageUrl, // Salvar a URL pública da imagem
         is_facade: true // Campo para identificar que é uma fachada
       };
-      
-      const result = await addReading(facadeData);
-      
-      if (result) {
-        Alert.alert(
-          'Sucesso',
-          'Foto da fachada salva com sucesso!',
-          [
-            {
-              text: 'OK',
-              onPress: () => navigation.navigate('Início')
-            }
-          ]
-        );
-      } else {
-        throw new Error('Não foi possível salvar a foto da fachada.');
-      }
+
+      // await addReading(facadeData); // Descomente se precisar salvar localmente também
+
+      // 5. Redirecionar para nova tela com resposta do webhook
+      navigation.navigate('WebhookResponseScreen', { webhookResult }); // Substitua 'WebhookResponseScreen' pelo nome da sua tela de destino
+
     } catch (error) {
-      console.error('Erro ao salvar foto da fachada:', error);
-      Alert.alert('Erro', 'Ocorreu um erro ao tentar salvar a foto da fachada.');
+      console.error('Erro ao processar fachada:', error);
+      Alert.alert('Erro', `Ocorreu um erro: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
   };
-  
+
   // Função para cancelar a captura
   const handleCancel = () => {
     navigation.goBack();
@@ -104,145 +163,196 @@ const FacadeScreen = ({ navigation }) => {
     setCapturedImage(null);
   };
   
+  // Botões do rodapé
+  const footerContent = (
+    <View style={styles.footerContent}>
+      <TouchableOpacity
+        style={[styles.footerButton, styles.cancelButton]}
+        onPress={handleCancel}
+        disabled={isSaving}
+      >
+        <Text style={styles.cancelButtonText}>Cancelar</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity
+        style={[
+          styles.footerButton, 
+          styles.saveButton, 
+          (!capturedImage || isSaving) && styles.buttonDisabled
+        ]}
+        onPress={handleSaveFacade}
+        disabled={!capturedImage || isSaving}
+      >
+        {isSaving ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="small" color="#fff" style={styles.loadingIndicator} />
+            <Text style={styles.saveButtonText}>Salvando...</Text>
+          </View>
+        ) : (
+          <Text style={styles.saveButtonText}>Salvar</Text>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+  
   // Renderizar a câmera ou o formulário
   if (showCamera) {
     return (
-      <CameraComponent
-        onCapture={handleCaptureImage}
-        onClose={handleCloseCamera}
-      />
+      <Suspense fallback={
+        <View style={styles.loadingScreen}>
+          <ActivityIndicator size="large" color="#4299e1" />
+          <Text style={styles.loadingText}>Carregando câmera...</Text>
+        </View>
+      }>
+        <CameraComponent
+          onCapture={handleCaptureImage}
+          onClose={handleCloseCamera}
+        />
+      </Suspense>
     );
   }
   
+  const handleAddressPress = () => {
+    // Aqui você pode abrir um modal ou navegar para uma tela para adicionar endereço
+    // Por enquanto, usaremos um prompt simples
+    Alert.prompt(
+      "Adicionar Endereço",
+      "Informe o endereço da residência",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel"
+        },
+        {
+          text: "Salvar",
+          onPress: text => setAddress(text)
+        }
+      ],
+      "plain-text",
+      address
+    );
+  };
+  
+  const handleNotesPress = () => {
+    // Similar ao endereço, podemos usar um prompt simples por enquanto
+    Alert.prompt(
+      "Adicionar Observações",
+      "Informe observações relevantes",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel"
+        },
+        {
+          text: "Salvar",
+          onPress: text => setNotes(text)
+        }
+      ],
+      "plain-text",
+      notes
+    );
+  };
+  
   return (
-    <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        <View style={styles.content}>
-          <Text style={styles.title}>Foto da Fachada</Text>
-          <Text style={styles.description}>
-            Tire uma foto da fachada da casa ou estabelecimento para facilitar a identificação do local.
-          </Text>
-          
-          {capturedImage ? (
-            <View style={styles.imageContainer}>
-              {/* No ambiente web, quando temos apenas o nome do arquivo, exibir imagem placeholder */}
-              {Platform.OS === 'web' && !capturedImage.uri.startsWith('data:') ? (
-                <View style={[styles.previewImage, styles.placeholderImage]}>
-                  <Ionicons name="image" size={64} color="#4299e1" />
-                  <Text style={styles.placeholderText}>Imagem capturada</Text>
-                </View>
-              ) : (
-                <Image
-                  source={{ uri: capturedImage.uri }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
-              )}
-              <TouchableOpacity
-                style={styles.removeImageButton}
-                onPress={handleDiscardPhoto}
-              >
-                <Ionicons name="close-circle" size={24} color="#f56565" />
-              </TouchableOpacity>
+    <StandardLayout
+      title="Foto da Fachada"
+      description="Tire uma foto da fachada da casa ou estabelecimento para facilitar a identificação do local."
+      onBackPress={() => navigation.goBack()}
+      footer={footerContent}
+    >
+      {capturedImage ? (
+        <View style={styles.imageContainer}>
+          {/* No ambiente web, quando temos apenas o nome do arquivo, exibir imagem placeholder */}
+          {Platform.OS === 'web' && !capturedImage.uri.startsWith('data:') ? (
+            <View style={[styles.previewImage, styles.placeholderImage]}>
+              <Ionicons name="image" size={64} color="#4299e1" />
+              <Text style={styles.placeholderText}>Imagem capturada</Text>
             </View>
           ) : (
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={handleOpenCamera}
-            >
-              <Ionicons name="camera" size={24} color="#4299e1" />
-              <Text style={styles.photoButtonText}>Tirar Foto da Fachada</Text>
-            </TouchableOpacity>
+            <Image
+              source={{ uri: capturedImage.uri }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
           )}
-          
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Endereço</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="location-outline" size={20} color="#4299e1" style={styles.inputIcon} />
-              <View style={styles.input}>
-                <TouchableOpacity onPress={handleOpenCamera}>
-                  <Text style={styles.inputText}>
-                    {address || 'Toque para adicionar endereço'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-          
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Observações</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="create-outline" size={20} color="#4299e1" style={styles.inputIcon} />
-              <View style={styles.input}>
-                <TouchableOpacity onPress={handleOpenCamera}>
-                  <Text style={styles.inputText}>
-                    {notes || 'Toque para adicionar observações'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+          <TouchableOpacity
+            style={styles.removeImageButton}
+            onPress={handleDiscardPhoto}
+          >
+            <Ionicons name="close-circle" size={24} color="#f56565" />
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      ) : (
+        <TouchableOpacity
+          style={styles.photoButton}
+          onPress={handleOpenCamera}
+        >
+          <Ionicons name="camera" size={32} color="#4299e1" />
+          <Text style={styles.photoButtonText}>Tirar Foto da Fachada</Text>
+        </TouchableOpacity>
+      )}
       
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.button, styles.cancelButton]}
-          onPress={handleCancel}
-          disabled={isSaving}
-        >
-          <Text style={styles.cancelButtonText}>Cancelar</Text>
-        </TouchableOpacity>
+      <View style={styles.formContainer}>
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Endereço</Text>
+          <TouchableOpacity 
+            style={styles.field}
+            onPress={handleAddressPress}
+          >
+            <Ionicons name="location-outline" size={20} color="#4299e1" style={styles.fieldIcon} />
+            <Text style={[styles.fieldText, !address && styles.placeholderField]}>
+              {address || 'Toque para adicionar endereço'}
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="#CBD5E0" />
+          </TouchableOpacity>
+        </View>
         
-        <TouchableOpacity
-          style={[styles.button, styles.submitButton, (!capturedImage || isSaving) && styles.buttonDisabled]}
-          onPress={handleSaveFacade}
-          disabled={!capturedImage || isSaving}
-        >
-          {isSaving ? (
-            <View style={styles.loadingContainer}>
-              <Ionicons name="sync" size={20} color="#fff" style={styles.loadingIcon} />
-              <Text style={styles.submitButtonText}>Salvando...</Text>
-            </View>
-          ) : (
-            <Text style={styles.submitButtonText}>Salvar</Text>
-          )}
-        </TouchableOpacity>
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Observações</Text>
+          <TouchableOpacity 
+            style={styles.field}
+            onPress={handleNotesPress}
+          >
+            <Ionicons name="create-outline" size={20} color="#4299e1" style={styles.fieldIcon} />
+            <Text style={[styles.fieldText, !notes && styles.placeholderField]}>
+              {notes || 'Toque para adicionar observações'}
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="#CBD5E0" />
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
+    </StandardLayout>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  loadingScreen: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: '#f7fafc',
   },
-  scrollView: {
-    flex: 1,
-  },
-  content: {
-    padding: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2d3748',
-    marginBottom: 8,
-  },
-  description: {
+  loadingText: {
+    marginTop: 16,
     fontSize: 16,
     color: '#4a5568',
-    marginBottom: 24,
   },
   imageContainer: {
     position: 'relative',
     borderRadius: 8,
     overflow: 'hidden',
     height: 250,
-    marginBottom: 24,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+    // Sombra para iOS
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    // Sombra para Android
+    elevation: 1,
   },
   previewImage: {
     width: '100%',
@@ -264,23 +374,36 @@ const styles = StyleSheet.create({
     top: 8,
     right: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 15,
+    borderRadius: 18,
+    padding: 2,
   },
   photoButton: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#ebf8ff',
     borderWidth: 1,
     borderColor: '#bee3f8',
     borderRadius: 8,
-    padding: 16,
-    marginBottom: 24,
+    padding: 24,
+    marginBottom: 20,
+    height: 180,
+    // Sombra para iOS
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    // Sombra para Android
+    elevation: 1,
   },
   photoButtonText: {
-    marginLeft: 8,
+    marginTop: 12,
     fontSize: 16,
+    fontWeight: '500',
     color: '#4299e1',
+  },
+  formContainer: {
+    marginBottom: 20,
   },
   formGroup: {
     marginBottom: 16,
@@ -291,36 +414,41 @@ const styles = StyleSheet.create({
     color: '#4a5568',
     marginBottom: 8,
   },
-  inputContainer: {
+  field: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#e2e8f0',
     borderRadius: 8,
+    paddingVertical: 12,
     paddingHorizontal: 12,
+    // Sombra para iOS
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    // Sombra para Android
+    elevation: 1,
   },
-  inputIcon: {
-    marginRight: 8,
+  fieldIcon: {
+    marginRight: 12,
   },
-  input: {
+  fieldText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#2d3748',
+  },
+  placeholderField: {
+    color: '#A0AEC0',
+  },
+  footerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  footerButton: {
     flex: 1,
     paddingVertical: 14,
-  },
-  inputText: {
-    fontSize: 16,
-    color: '#718096',
-  },
-  actions: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    padding: 16,
-    backgroundColor: '#fff',
-  },
-  button: {
-    flex: 1,
-    padding: 16,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -336,10 +464,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  submitButton: {
+  saveButton: {
     backgroundColor: '#4299e1',
   },
-  submitButtonText: {
+  saveButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '500',
@@ -350,8 +478,9 @@ const styles = StyleSheet.create({
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  loadingIcon: {
+  loadingIndicator: {
     marginRight: 8,
   },
 });

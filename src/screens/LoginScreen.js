@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import { supabase } from "../services/supabase"; // Importar o cliente Supabase
+import { storage } from "../utils/storage"; // Importar MMKV storage
 
 export default function LoginScreen() {
   const navigation = useNavigation();
@@ -28,21 +30,54 @@ export default function LoginScreen() {
     setIsLoading(true);
 
     try {
-      // Simulação de login - substitua por sua lógica de autenticação real
-      setTimeout(() => {
-        setIsLoading(false);
-        // Navega para a tela inicial após login bem-sucedido
-        navigation.reset({
-          index: 0,
-          routes: [{ name: "Main" }],
-        });
-      }, 1500);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: username, // Usar o campo username como email
+        password: password,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      // Se o login for bem-sucedido, buscar informações adicionais do leiturista
+      if (data.user) {
+        const { data: leituristaData, error: leituristaError } = await supabase
+          .from('leituristas') // Tabela informada pelo usuário
+          .select('*')
+          .eq('user_id', data.user.id) // Corrigido para usar user_id
+          .single();
+
+        if (leituristaError) {
+          console.error("Erro ao buscar perfil do leiturista:", leituristaError);
+          // Decidir se o login deve falhar se o perfil não for encontrado
+          // Por enquanto, vamos permitir o login mas alertar sobre o perfil
+          Alert.alert("Aviso", "Perfil do leiturista não encontrado no banco de dados.");
+          // Não lançar erro fatal aqui para permitir a navegação
+        } else if (leituristaData) {
+          console.log("Perfil do leiturista encontrado:", leituristaData);
+          // Salvar dados completos do leiturista no MMKV
+          storage.set('leiturista', JSON.stringify(leituristaData));
+          console.log("Perfil do leiturista salvo no MMKV.");
+        } else {
+           console.warn("Busca do perfil do leiturista não retornou dados.");
+        }
+      } else {
+         console.warn("Login bem-sucedido, mas data.user é null ou undefined.");
+      }
+
+
+      // Navega para a tela inicial após login bem-sucedido
+      navigation.reset({
+        index: 0,
+        routes: [{ name: "Main" }],
+      });
     } catch (error) {
-      setIsLoading(false);
       Alert.alert(
         "Erro de Login",
-        "Não foi possível fazer login. Verifique suas credenciais.",
+        error.message || "Não foi possível fazer login. Verifique suas credenciais.",
       );
+    } finally {
+      setIsLoading(false);
     }
   };
 
